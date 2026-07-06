@@ -32,14 +32,21 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.action.onClicked.addListener(() => {
   chrome.storage.local.get(['enabled'], (result) => {
-    const newEnabled = result.enabled === undefined ? true : !(result.enabled as boolean);
+    const newEnabled = result.enabled === undefined ? false : !(result.enabled as boolean);
     chrome.storage.local.set({ enabled: newEnabled });
-    updateBadge(newEnabled);
+    // Note: We don't need to call updateBadge here because chrome.storage.onChanged handles it
   });
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.enabled) {
     updateBadge(changes.enabled.newValue as boolean);
+  }
+});
+
+// Set initial badge state when the service worker wakes up
+chrome.storage.local.get(['enabled'], (result) => {
+  if (result.enabled !== undefined) {
+    updateBadge(result.enabled as boolean);
   }
 });

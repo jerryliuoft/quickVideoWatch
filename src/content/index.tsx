@@ -1,25 +1,17 @@
 import '../index.css';
 import { render } from 'solid-js/web';
 import { VideoTimeline } from './VideoTimeline';
-import { addPeak, updateVideoState, clearPeaks, setIsDarkMode } from './timelineState';
+import { setIsDarkMode } from './timelineState';
+import { initAudio, updateAudioConfig } from './audioProcessor';
 
-let audioCtx: AudioContext | null = null;
-let analyser: AnalyserNode | null = null;
-let source: MediaElementAudioSourceNode | null = null;
-let mediaElement: HTMLVideoElement | null = null;
-let silenceTimer: number | null = null;
 let timelineMounted = false;
-let lastVideoSrc = '';
-
-let isSilence = false;
-let peakVolume = 0.001;
 let config = {
   enabled: true,
-  minVolumePercent: 10, // %
-  minSilenceLength: 0.5, // seconds
-  prePadding: 0.2, // seconds
-  postPadding: 0.2, // seconds
-  userTheme: 'auto', // 'auto', 'light', 'dark'
+  minVolumePercent: 10,
+  minSilenceLength: 0.5,
+  prePadding: 0.2,
+  postPadding: 0.2,
+  userTheme: 'auto',
 };
 
 function mountTimeline() {
@@ -27,7 +19,6 @@ function mountTimeline() {
 
   if (timelineMounted && existingContainer && document.body.contains(existingContainer)) return;
 
-  // Try different anchor points depending on YouTube's layout (A/B tests, screen sizes)
   const anchorPoints = [
     document.querySelector('#below'),
     document.querySelector('ytd-watch-metadata'),
@@ -43,10 +34,7 @@ function mountTimeline() {
     }
   }
 
-  // Fallback to inserting after the player if none of the above are found
   const fallbackPlayer = document.querySelector('ytd-player');
-
-  // Ultimate fallback for non-YouTube sites
   const genericVideo = document.querySelector('video');
 
   if (anchor || fallbackPlayer || genericVideo) {
@@ -71,7 +59,6 @@ function mountTimeline() {
       genericVideo.parentElement?.insertBefore(container, genericVideo.nextSibling);
     }
 
-    // Initial theme check
     const isDark =
       document.documentElement.hasAttribute('dark') ||
       document.documentElement.getAttribute('data-theme') === 'dark' ||
@@ -91,144 +78,11 @@ function unmountTimeline() {
   timelineMounted = false;
 }
 
-let resumeAudioFn: (() => void) | null = null;
-
-function initAudio() {
-  const newMediaElement = document.querySelector('video');
-  if (!newMediaElement) return;
-
-  if (newMediaElement !== mediaElement) {
-    if (source) {
-      source.disconnect();
-      source = null;
-    }
-    mediaElement = newMediaElement;
-
-    if (!audioCtx) {
-      audioCtx = new AudioContext();
-      analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.connect(audioCtx.destination);
-    }
-
-    try {
-      source = audioCtx.createMediaElementSource(mediaElement);
-      if (analyser) source.connect(analyser);
-    } catch (e) {
-      console.warn('SilenceSlicer: Could not create media element source', e);
-    }
-  }
-
-  if (audioCtx && audioCtx.state === 'suspended') {
-    if (resumeAudioFn) {
-      document.removeEventListener('click', resumeAudioFn);
-      document.removeEventListener('keydown', resumeAudioFn);
-    }
-
-    resumeAudioFn = () => {
-      audioCtx?.resume();
-      if (resumeAudioFn) {
-        document.removeEventListener('click', resumeAudioFn);
-        document.removeEventListener('keydown', resumeAudioFn);
-        resumeAudioFn = null;
-      }
-    };
-
-    document.addEventListener('click', resumeAudioFn);
-    document.addEventListener('keydown', resumeAudioFn);
-  }
-}
-
-function getVolumeLevels() {
-  if (!analyser) return { rms: 0, db: -100 };
-  const dataArray = new Float32Array(analyser.frequencyBinCount);
-  analyser.getFloatTimeDomainData(dataArray);
-
-  let sumSquares = 0.0;
-  for (let i = 0; i < dataArray.length; i++) {
-    sumSquares += dataArray[i] * dataArray[i];
-  }
-
-  const rms = Math.sqrt(sumSquares / dataArray.length);
-  const db = 20 * Math.log10(rms || 0.0001);
-  return { rms, db };
-}
-
-let userPlaybackRate = 1;
-
-function monitorAudio() {
-  if (!config.enabled) {
-    unmountTimeline();
-    if (isSilence) {
-      if (silenceTimer) clearTimeout(silenceTimer);
-      if (mediaElement && mediaElement.playbackRate === 16) {
-        mediaElement.playbackRate = userPlaybackRate;
-      }
-      isSilence = false;
-    }
-    return;
-  }
-
-  mountTimeline(); // constantly attempt to mount if not mounted yet, or unmount if disabled
-
-  if (!mediaElement) return;
-
-  // Track the user's playback rate when we are not currently fast-forwarding
-  if (mediaElement.playbackRate !== 16) {
-    userPlaybackRate = mediaElement.playbackRate;
-  }
-
-  // Handle video source changes
-  if (mediaElement.src !== lastVideoSrc) {
-    clearPeaks();
-    lastVideoSrc = mediaElement.src;
-    peakVolume = 0.001;
-  }
-
-  if (mediaElement.paused || mediaElement.ended) return;
-
-  const { rms, db } = getVolumeLevels();
-
-  if (rms > peakVolume) {
-    peakVolume = rms;
-  }
-
-  const thresholdRms = peakVolume * (config.minVolumePercent / 100);
-
-  if (rms < thresholdRms) {
-    if (!isSilence) {
-      silenceTimer = window.setTimeout(
-        () => {
-          if (mediaElement) {
-            mediaElement.playbackRate = 16;
-          }
-        },
-        Math.max(config.prePadding, config.minSilenceLength) * 1000,
-      );
-      isSilence = true;
-    }
-  } else {
-    if (isSilence) {
-      if (silenceTimer) clearTimeout(silenceTimer);
-      if (mediaElement && mediaElement.playbackRate === 16) {
-        mediaElement.playbackRate = userPlaybackRate;
-        if (config.postPadding > 0) {
-          mediaElement.currentTime = Math.max(0, mediaElement.currentTime - config.postPadding);
-        }
-      }
-      isSilence = false;
-    }
-  }
-
-  updateVideoState(mediaElement.currentTime, mediaElement.duration);
-  // push to timeline state
-  addPeak(db, isSilence, mediaElement.currentTime);
-}
-
 function main() {
   const seekListener = ((e: CustomEvent) => {
-    if (mediaElement && !isNaN(e.detail.time)) {
-      mediaElement.currentTime = e.detail.time;
+    const video = document.querySelector('video');
+    if (video && !isNaN(e.detail.time)) {
+      video.currentTime = e.detail.time;
     }
   }) as EventListener;
   window.addEventListener('silenceSlicerSeek', seekListener);
@@ -245,22 +99,38 @@ function main() {
       if (result.postPadding !== undefined) config.postPadding = result.postPadding as number;
       if (result.userTheme !== undefined) config.userTheme = result.userTheme as string;
       checkTheme();
+      updateAudioConfig(config);
     },
   );
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local') {
-      if (changes.enabled) config.enabled = changes.enabled.newValue as boolean;
-      if (changes.minVolumePercent)
+      let changed = false;
+      if (changes.enabled) {
+        config.enabled = changes.enabled.newValue as boolean;
+        changed = true;
+      }
+      if (changes.minVolumePercent) {
         config.minVolumePercent = changes.minVolumePercent.newValue as number;
-      if (changes.minSilenceLength)
+        changed = true;
+      }
+      if (changes.minSilenceLength) {
         config.minSilenceLength = changes.minSilenceLength.newValue as number;
-      if (changes.prePadding) config.prePadding = changes.prePadding.newValue as number;
-      if (changes.postPadding) config.postPadding = changes.postPadding.newValue as number;
+        changed = true;
+      }
+      if (changes.prePadding) {
+        config.prePadding = changes.prePadding.newValue as number;
+        changed = true;
+      }
+      if (changes.postPadding) {
+        config.postPadding = changes.postPadding.newValue as number;
+        changed = true;
+      }
       if (changes.userTheme) {
         config.userTheme = changes.userTheme.newValue as string;
         checkTheme();
       }
+      if (changed) updateAudioConfig(config);
     }
   });
 
@@ -291,8 +161,8 @@ function main() {
 
   const observer = new MutationObserver((mutations) => {
     const video = document.querySelector('video');
-    if (video && video !== mediaElement) {
-      initAudio();
+    if (video) {
+      initAudio(video, config, { mountTimeline, unmountTimeline });
     }
 
     for (const m of mutations) {
@@ -312,13 +182,11 @@ function main() {
   observer.observe(document.body, { childList: true, subtree: true });
 
   checkTheme();
-  initAudio();
 
-  const loop = () => {
-    monitorAudio();
-    requestAnimationFrame(loop);
-  };
-  requestAnimationFrame(loop);
+  const initialVideo = document.querySelector('video');
+  if (initialVideo) {
+    initAudio(initialVideo, config, { mountTimeline, unmountTimeline });
+  }
 }
 
 main();
