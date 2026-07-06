@@ -10,8 +10,25 @@ export const [peaks, setPeaks] = createSignal<PeakData[]>([]);
 export const [videoDuration, setVideoDuration] = createSignal<number>(1);
 export const [videoCurrentTime, setVideoCurrentTime] = createSignal<number>(0);
 
+let lastBucketTime = -1;
+let currentBucket: PeakData | null = null;
+
 export const addPeak = (db: number, isSilence: boolean, time: number) => {
-  setPeaks(prev => [...prev, { db, isSilence, time }]);
+  const bucketTime = Math.floor(time * 4) / 4; // 250ms buckets
+
+  if (bucketTime !== lastBucketTime) {
+    if (currentBucket) {
+      const b = currentBucket;
+      setPeaks((prev) => [...prev, b]);
+    }
+    currentBucket = { db, isSilence, time: bucketTime };
+    lastBucketTime = bucketTime;
+  } else if (currentBucket) {
+    currentBucket.db = Math.max(currentBucket.db, db);
+    // If any part of the bucket was NOT silence, it's safer to mark as not silence,
+    // or just track the latest. We'll track the most recent.
+    currentBucket.isSilence = isSilence;
+  }
 };
 
 export const updateVideoState = (currentTime: number, duration: number) => {
@@ -23,4 +40,6 @@ export const updateVideoState = (currentTime: number, duration: number) => {
 
 export const clearPeaks = () => {
   setPeaks([]);
+  lastBucketTime = -1;
+  currentBucket = null;
 };

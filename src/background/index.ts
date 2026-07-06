@@ -2,13 +2,13 @@
 // Basic background service worker
 
 function updateBadge(enabled: boolean) {
-  chrome.action.setBadgeText({ text: enabled ? "ON" : "OFF" });
-  chrome.action.setBadgeBackgroundColor({ color: enabled ? "#06b6d4" : "#64748b" });
+  chrome.action.setBadgeText({ text: enabled ? 'ON' : 'OFF' });
+  chrome.action.setBadgeBackgroundColor({ color: enabled ? '#06b6d4' : '#64748b' });
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log("SilenceSlicer installed.");
-  
+  console.log('SilenceSlicer installed.');
+
   // Set default settings
   chrome.storage.local.get(['enabled', 'threshold', 'padding'], (result) => {
     let enabled = true;
@@ -18,7 +18,7 @@ chrome.runtime.onInstalled.addListener(() => {
       chrome.storage.local.set({
         enabled: true,
         threshold: -40,
-        padding: 0.5
+        padding: 0.5,
       });
     }
     updateBadge(enabled);
