@@ -10,19 +10,24 @@ chrome.runtime.onInstalled.addListener(() => {
   console.log('SilenceSlicer installed.');
 
   // Set default settings
-  chrome.storage.local.get(['enabled', 'threshold', 'padding'], (result) => {
-    let enabled = true;
-    if (result.enabled !== undefined) {
-      enabled = result.enabled as boolean;
-    } else {
-      chrome.storage.local.set({
-        enabled: true,
-        threshold: -40,
-        padding: 0.5,
-      });
-    }
-    updateBadge(enabled);
-  });
+  chrome.storage.local.get(
+    ['enabled', 'minVolumePercent', 'minSilenceLength', 'prePadding', 'postPadding'],
+    (result) => {
+      let enabled = true;
+      if (result.enabled !== undefined) {
+        enabled = result.enabled as boolean;
+      } else {
+        chrome.storage.local.set({
+          enabled: true,
+          minVolumePercent: 10,
+          minSilenceLength: 0.5,
+          prePadding: 0.2,
+          postPadding: 0.2,
+        });
+      }
+      updateBadge(enabled);
+    },
+  );
 });
 
 chrome.action.onClicked.addListener(() => {

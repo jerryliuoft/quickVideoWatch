@@ -1,20 +1,31 @@
 {
   "manifest_version": 3,
   "name": "SilenceSlicer for YouTube",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Automatically skips silent parts of YouTube videos.",
-  "action": {},
+  "action": {
+    "default_icon": {
+      "16": "LOGO.png",
+      "48": "LOGO.png",
+      "128": "LOGO.png"
+    }
+  },
+  "icons": {
+    "16": "LOGO.png",
+    "48": "LOGO.png",
+    "128": "LOGO.png"
+  },
   "permissions": [
     "storage",
     "activeTab",
     "scripting"
   ],
   "host_permissions": [
-    "*://*.youtube.com/*"
+    "<all_urls>"
   ],
   "content_scripts": [
     {
-      "matches": ["*://*.youtube.com/*"],
+      "matches": ["<all_urls>"],
       "js": ["src/content/index.tsx"]
     }
   ],
@@ -25,7 +36,7 @@
   "web_accessible_resources": [
     {
       "resources": ["LOGO.png"],
-      "matches": ["*://*.youtube.com/*"]
+      "matches": ["<all_urls>"]
     }
   ]
 }

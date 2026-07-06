@@ -14,8 +14,9 @@ let lastVideoSrc = '';
 let isSilence = false;
 let peakVolume = 0.001;
 let config = {
-  minVolumePercent: 5, // %
-  minSilenceLength: 0.8, // seconds
+  enabled: true,
+  minVolumePercent: 10, // %
+  minSilenceLength: 0.5, // seconds
   prePadding: 0.2, // seconds
   postPadding: 0.2, // seconds
   userTheme: 'auto', // 'auto', 'light', 'dark'
@@ -26,11 +27,29 @@ function mountTimeline() {
 
   if (timelineMounted && existingContainer && document.body.contains(existingContainer)) return;
 
-  const primaryInner =
-    document.querySelector('#primary-inner') || document.querySelector('#below')?.parentElement;
-  const below = document.querySelector('#below');
+  // Try different anchor points depending on YouTube's layout (A/B tests, screen sizes)
+  const anchorPoints = [
+    document.querySelector('#below'),
+    document.querySelector('ytd-watch-metadata'),
+    document.querySelector('#primary-inner > #meta'),
+    document.querySelector('#primary-inner'),
+  ];
 
-  if (primaryInner && below) {
+  let anchor = null;
+  for (const point of anchorPoints) {
+    if (point && point.parentElement) {
+      anchor = point;
+      break;
+    }
+  }
+
+  // Fallback to inserting after the player if none of the above are found
+  const fallbackPlayer = document.querySelector('ytd-player');
+
+  // Ultimate fallback for non-YouTube sites
+  const genericVideo = document.querySelector('video');
+
+  if (anchor || fallbackPlayer || genericVideo) {
     if (existingContainer) {
       existingContainer.remove();
     }
@@ -44,7 +63,13 @@ function mountTimeline() {
     container.style.zIndex = '10';
     container.style.position = 'relative';
 
-    primaryInner.insertBefore(container, below);
+    if (anchor) {
+      anchor.parentElement?.insertBefore(container, anchor);
+    } else if (fallbackPlayer) {
+      fallbackPlayer.parentElement?.insertBefore(container, fallbackPlayer.nextSibling);
+    } else if (genericVideo) {
+      genericVideo.parentElement?.insertBefore(container, genericVideo.nextSibling);
+    }
 
     // Initial theme check
     const isDark =
@@ -56,6 +81,14 @@ function mountTimeline() {
     render(() => <VideoTimeline />, container);
     timelineMounted = true;
   }
+}
+
+function unmountTimeline() {
+  const existingContainer = document.getElementById('silenceslicer-timeline-container');
+  if (existingContainer) {
+    existingContainer.remove();
+  }
+  timelineMounted = false;
 }
 
 let resumeAudioFn: (() => void) | null = null;
@@ -124,6 +157,18 @@ function getVolumeLevels() {
 let userPlaybackRate = 1;
 
 function monitorAudio() {
+  if (!config.enabled) {
+    unmountTimeline();
+    if (isSilence) {
+      if (silenceTimer) clearTimeout(silenceTimer);
+      if (mediaElement && mediaElement.playbackRate === 16) {
+        mediaElement.playbackRate = userPlaybackRate;
+      }
+      isSilence = false;
+    }
+    return;
+  }
+
   mountTimeline(); // constantly attempt to mount if not mounted yet, or unmount if disabled
 
   if (!mediaElement) return;
@@ -189,8 +234,9 @@ function main() {
   window.addEventListener('silenceSlicerSeek', seekListener);
 
   chrome.storage.local.get(
-    ['minVolumePercent', 'minSilenceLength', 'prePadding', 'postPadding', 'userTheme'],
+    ['enabled', 'minVolumePercent', 'minSilenceLength', 'prePadding', 'postPadding', 'userTheme'],
     (result) => {
+      if (result.enabled !== undefined) config.enabled = result.enabled as boolean;
       if (result.minVolumePercent !== undefined)
         config.minVolumePercent = result.minVolumePercent as number;
       if (result.minSilenceLength !== undefined)
@@ -204,6 +250,7 @@ function main() {
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local') {
+      if (changes.enabled) config.enabled = changes.enabled.newValue as boolean;
       if (changes.minVolumePercent)
         config.minVolumePercent = changes.minVolumePercent.newValue as number;
       if (changes.minSilenceLength)
