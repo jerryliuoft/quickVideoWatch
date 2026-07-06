@@ -12,9 +12,12 @@ let timelineMounted = false;
 let lastVideoSrc = '';
 
 let isSilence = false;
+let peakVolume = 0.001;
 let config = {
-  threshold: -40, // dB
-  padding: 0.5, // seconds
+  minVolumePercent: 5, // %
+  minSilenceLength: 0.8, // seconds
+  prePadding: 0.2, // seconds
+  postPadding: 0.2, // seconds
   userTheme: 'auto', // 'auto', 'light', 'dark'
 };
 
@@ -55,6 +58,8 @@ function mountTimeline() {
   }
 }
 
+let resumeAudioFn: (() => void) | null = null;
+
 function initAudio() {
   const newMediaElement = document.querySelector('video');
   if (!newMediaElement) return;
@@ -82,18 +87,27 @@ function initAudio() {
   }
 
   if (audioCtx && audioCtx.state === 'suspended') {
-    const resumeAudio = () => {
+    if (resumeAudioFn) {
+      document.removeEventListener('click', resumeAudioFn);
+      document.removeEventListener('keydown', resumeAudioFn);
+    }
+
+    resumeAudioFn = () => {
       audioCtx?.resume();
-      document.removeEventListener('click', resumeAudio);
-      document.removeEventListener('keydown', resumeAudio);
+      if (resumeAudioFn) {
+        document.removeEventListener('click', resumeAudioFn);
+        document.removeEventListener('keydown', resumeAudioFn);
+        resumeAudioFn = null;
+      }
     };
-    document.addEventListener('click', resumeAudio);
-    document.addEventListener('keydown', resumeAudio);
+
+    document.addEventListener('click', resumeAudioFn);
+    document.addEventListener('keydown', resumeAudioFn);
   }
 }
 
-function getVolume() {
-  if (!analyser) return -100;
+function getVolumeLevels() {
+  if (!analyser) return { rms: 0, db: -100 };
   const dataArray = new Float32Array(analyser.frequencyBinCount);
   analyser.getFloatTimeDomainData(dataArray);
 
@@ -103,44 +117,67 @@ function getVolume() {
   }
 
   const rms = Math.sqrt(sumSquares / dataArray.length);
-  return 20 * Math.log10(rms || 0.0001);
+  const db = 20 * Math.log10(rms || 0.0001);
+  return { rms, db };
 }
+
+let userPlaybackRate = 1;
 
 function monitorAudio() {
   mountTimeline(); // constantly attempt to mount if not mounted yet, or unmount if disabled
 
   if (!mediaElement) return;
 
+  // Track the user's playback rate when we are not currently fast-forwarding
+  if (mediaElement.playbackRate !== 16) {
+    userPlaybackRate = mediaElement.playbackRate;
+  }
+
   // Handle video source changes
   if (mediaElement.src !== lastVideoSrc) {
     clearPeaks();
     lastVideoSrc = mediaElement.src;
+    peakVolume = 0.001;
   }
 
   if (mediaElement.paused || mediaElement.ended) return;
 
-  const currentVolume = getVolume();
+  const { rms, db } = getVolumeLevels();
 
-  if (currentVolume < config.threshold) {
+  if (rms > peakVolume) {
+    peakVolume = rms;
+  }
+
+  const thresholdRms = peakVolume * (config.minVolumePercent / 100);
+
+  if (rms < thresholdRms) {
     if (!isSilence) {
-      silenceTimer = window.setTimeout(() => {
-        if (mediaElement) {
-          mediaElement.playbackRate = 16;
-        }
-      }, config.padding * 1000);
+      silenceTimer = window.setTimeout(
+        () => {
+          if (mediaElement) {
+            mediaElement.playbackRate = 16;
+          }
+        },
+        Math.max(config.prePadding, config.minSilenceLength) * 1000,
+      );
       isSilence = true;
     }
   } else {
     if (isSilence) {
       if (silenceTimer) clearTimeout(silenceTimer);
-      if (mediaElement) mediaElement.playbackRate = 1;
+      if (mediaElement && mediaElement.playbackRate === 16) {
+        mediaElement.playbackRate = userPlaybackRate;
+        if (config.postPadding > 0) {
+          mediaElement.currentTime = Math.max(0, mediaElement.currentTime - config.postPadding);
+        }
+      }
       isSilence = false;
     }
   }
 
   updateVideoState(mediaElement.currentTime, mediaElement.duration);
   // push to timeline state
-  addPeak(currentVolume, isSilence, mediaElement.currentTime);
+  addPeak(db, isSilence, mediaElement.currentTime);
 }
 
 function main() {
@@ -151,17 +188,28 @@ function main() {
   }) as EventListener;
   window.addEventListener('silenceSlicerSeek', seekListener);
 
-  chrome.storage.local.get(['threshold', 'padding', 'userTheme'], (result) => {
-    if (result.threshold !== undefined) config.threshold = result.threshold as number;
-    if (result.padding !== undefined) config.padding = result.padding as number;
-    if (result.userTheme !== undefined) config.userTheme = result.userTheme as string;
-    checkTheme();
-  });
+  chrome.storage.local.get(
+    ['minVolumePercent', 'minSilenceLength', 'prePadding', 'postPadding', 'userTheme'],
+    (result) => {
+      if (result.minVolumePercent !== undefined)
+        config.minVolumePercent = result.minVolumePercent as number;
+      if (result.minSilenceLength !== undefined)
+        config.minSilenceLength = result.minSilenceLength as number;
+      if (result.prePadding !== undefined) config.prePadding = result.prePadding as number;
+      if (result.postPadding !== undefined) config.postPadding = result.postPadding as number;
+      if (result.userTheme !== undefined) config.userTheme = result.userTheme as string;
+      checkTheme();
+    },
+  );
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local') {
-      if (changes.threshold) config.threshold = changes.threshold.newValue as number;
-      if (changes.padding) config.padding = changes.padding.newValue as number;
+      if (changes.minVolumePercent)
+        config.minVolumePercent = changes.minVolumePercent.newValue as number;
+      if (changes.minSilenceLength)
+        config.minSilenceLength = changes.minSilenceLength.newValue as number;
+      if (changes.prePadding) config.prePadding = changes.prePadding.newValue as number;
+      if (changes.postPadding) config.postPadding = changes.postPadding.newValue as number;
       if (changes.userTheme) {
         config.userTheme = changes.userTheme.newValue as string;
         checkTheme();

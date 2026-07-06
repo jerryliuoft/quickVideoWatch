@@ -26,7 +26,29 @@ export const addPeak = (db: number, isSilence: boolean, time: number) => {
     if (currentBucket) {
       const b = currentBucket;
       setPeaks((prev) => {
-        const next = [...prev, b];
+        let low = 0;
+        let high = prev.length - 1;
+        let replaceIdx = -1;
+
+        while (low <= high) {
+          const mid = (low + high) >> 1;
+          if (prev[mid].time === b.time) {
+            replaceIdx = mid;
+            break;
+          } else if (prev[mid].time < b.time) {
+            low = mid + 1;
+          } else {
+            high = mid - 1;
+          }
+        }
+
+        const next = [...prev];
+        if (replaceIdx !== -1) {
+          next[replaceIdx] = b;
+        } else {
+          next.splice(low, 0, b);
+        }
+
         if (next.length > MAX_PEAKS_BUFFER) {
           return next.slice(next.length - MAX_PEAKS_BUFFER);
         }

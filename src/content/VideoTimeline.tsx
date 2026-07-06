@@ -28,9 +28,10 @@ const ZOOM_STEP_FACTOR = 1.2;
 const MAX_ZOOM = 200;
 
 export const VideoTimeline: Component = () => {
-  const [threshold, setThreshold] = createSignal(-40);
-  const [padding, setPadding] = createSignal(0.5);
-
+  const [minVolumePercent, setMinVolumePercent] = createSignal(5);
+  const [minSilenceLength, setMinSilenceLength] = createSignal(0.8);
+  const [prePadding, setPrePadding] = createSignal(0.2);
+  const [postPadding, setPostPadding] = createSignal(0.2);
   const [containerWidth, setContainerWidth] = createSignal(0);
   const [accumulatedDelta, setAccumulatedDelta] = createSignal(0);
 
@@ -43,15 +44,26 @@ export const VideoTimeline: Component = () => {
   let scrollbarTrackRef!: HTMLDivElement;
 
   onMount(() => {
-    chrome.storage.local.get(['threshold', 'padding'], (result) => {
-      if (result.threshold !== undefined) setThreshold(result.threshold as number);
-      if (result.padding !== undefined) setPadding(result.padding as number);
-    });
+    chrome.storage.local.get(
+      ['minVolumePercent', 'minSilenceLength', 'prePadding', 'postPadding'],
+      (result) => {
+        if (result.minVolumePercent !== undefined)
+          setMinVolumePercent(result.minVolumePercent as number);
+        if (result.minSilenceLength !== undefined)
+          setMinSilenceLength(result.minSilenceLength as number);
+        if (result.prePadding !== undefined) setPrePadding(result.prePadding as number);
+        if (result.postPadding !== undefined) setPostPadding(result.postPadding as number);
+      },
+    );
 
     const listener = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => {
       if (area === 'local') {
-        if (changes.threshold) setThreshold(changes.threshold.newValue as number);
-        if (changes.padding) setPadding(changes.padding.newValue as number);
+        if (changes.minVolumePercent)
+          setMinVolumePercent(changes.minVolumePercent.newValue as number);
+        if (changes.minSilenceLength)
+          setMinSilenceLength(changes.minSilenceLength.newValue as number);
+        if (changes.prePadding) setPrePadding(changes.prePadding.newValue as number);
+        if (changes.postPadding) setPostPadding(changes.postPadding.newValue as number);
       }
     };
 
@@ -89,16 +101,25 @@ export const VideoTimeline: Component = () => {
     chrome.storage.local.set({ userTheme: next });
   };
 
-  const updateThreshold = (e: Event) => {
-    const val = parseFloat((e.target as HTMLInputElement).value);
-    setThreshold(val);
-    chrome.storage.local.set({ threshold: val });
-  };
+  const updateConfig = (key: string, e: Event, isCheckbox = false) => {
+    const input = e.target as HTMLInputElement;
+    const val = isCheckbox ? input.checked : parseFloat(input.value);
 
-  const updatePadding = (e: Event) => {
-    const val = parseFloat((e.target as HTMLInputElement).value);
-    setPadding(val);
-    chrome.storage.local.set({ padding: val });
+    switch (key) {
+      case 'minVolumePercent':
+        setMinVolumePercent(val as number);
+        break;
+      case 'minSilenceLength':
+        setMinSilenceLength(val as number);
+        break;
+      case 'prePadding':
+        setPrePadding(val as number);
+        break;
+      case 'postPadding':
+        setPostPadding(val as number);
+        break;
+    }
+    chrome.storage.local.set({ [key]: val });
   };
 
   const getMinPps = () => {
@@ -259,34 +280,67 @@ export const VideoTimeline: Component = () => {
           <img src={chrome.runtime.getURL('LOGO.png')} alt="SilenceSlicer Logo" class="h-6 w-6" />
           SilenceSlicer
         </a>
-        <div class="flex items-center gap-3">
-          <label class="font-medium text-slate-600 dark:text-slate-400 whitespace-nowrap">
-            Threshold{' '}
-            <span class="text-cyan-600 w-12 inline-block text-right">{threshold()} dB</span>
-          </label>
-          <input
-            type="range"
-            min="-80"
-            max="-10"
-            step="1"
-            value={threshold()}
-            onInput={updateThreshold}
-            class="w-32 accent-cyan-500 cursor-pointer"
-          />
-        </div>
-        <div class="flex items-center gap-3">
-          <label class="font-medium text-slate-600 dark:text-slate-400 whitespace-nowrap">
-            Padding <span class="text-purple-600 w-8 inline-block text-right">{padding()} s</span>
-          </label>
-          <input
-            type="range"
-            min="0"
-            max="2"
-            step="0.1"
-            value={padding()}
-            onInput={updatePadding}
-            class="w-32 accent-purple-500 cursor-pointer"
-          />
+        <div class="flex items-center gap-4 flex-wrap">
+          <div class="flex items-center gap-2">
+            <label class="font-medium text-slate-600 dark:text-slate-400 text-xs">
+              Min Volume{' '}
+              <span class="text-cyan-600 inline-block w-8 text-right">{minVolumePercent()}%</span>
+            </label>
+            <input
+              type="range"
+              min="1"
+              max="50"
+              step="1"
+              value={minVolumePercent()}
+              onInput={(e) => updateConfig('minVolumePercent', e)}
+              class="w-16 accent-cyan-500 cursor-pointer"
+            />
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="font-medium text-slate-600 dark:text-slate-400 text-xs">
+              Min Silence{' '}
+              <span class="text-purple-600 inline-block w-8 text-right">{minSilenceLength()}s</span>
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="2"
+              step="0.1"
+              value={minSilenceLength()}
+              onInput={(e) => updateConfig('minSilenceLength', e)}
+              class="w-16 accent-purple-500 cursor-pointer"
+            />
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="font-medium text-slate-600 dark:text-slate-400 text-xs">
+              Pre Padding{' '}
+              <span class="text-green-600 inline-block w-6 text-right">{prePadding()}s</span>
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.1"
+              value={prePadding()}
+              onInput={(e) => updateConfig('prePadding', e)}
+              class="w-12 accent-green-500 cursor-pointer"
+            />
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="font-medium text-slate-600 dark:text-slate-400 text-xs">
+              Post Padding{' '}
+              <span class="text-orange-600 inline-block w-6 text-right">{postPadding()}s</span>
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.1"
+              value={postPadding()}
+              onInput={(e) => updateConfig('postPadding', e)}
+              class="w-12 accent-orange-500 cursor-pointer"
+            />
+          </div>
         </div>
         {/* Zoom Control and Theme Toggle */}
         <div class="flex items-center gap-4 ml-auto">
