@@ -133,6 +133,13 @@ function monitorAudio() {
 }
 
 function main() {
+  const seekListener = ((e: CustomEvent) => {
+    if (mediaElement && !isNaN(e.detail.time)) {
+      mediaElement.currentTime = e.detail.time;
+    }
+  }) as EventListener;
+  window.addEventListener('silenceSlicerSeek', seekListener);
+
   chrome.storage.local.get(['enabled', 'threshold', 'padding'], (result) => {
     if (result.enabled !== undefined) config.enabled = result.enabled as boolean;
     if (result.threshold !== undefined) config.threshold = result.threshold as number;

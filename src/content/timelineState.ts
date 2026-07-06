@@ -10,6 +10,9 @@ export const [peaks, setPeaks] = createSignal<PeakData[]>([]);
 export const [videoDuration, setVideoDuration] = createSignal<number>(1);
 export const [videoCurrentTime, setVideoCurrentTime] = createSignal<number>(0);
 
+export const [pixelsPerSecond, setPixelsPerSecond] = createSignal<number>(50); // Reasonable default zoom
+export const [viewStartTime, setViewStartTime] = createSignal<number>(0);
+
 let lastBucketTime = -1;
 let currentBucket: PeakData | null = null;
 
