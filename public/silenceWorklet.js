@@ -7,6 +7,17 @@ class SilenceWorkletProcessor extends AudioWorkletProcessor {
 
   process(inputs, outputs, parameters) {
     const input = inputs[0];
+    const output = outputs[0];
+
+    // Copy input to output so the user can actually hear the audio
+    if (input && output) {
+      for (let channel = 0; channel < input.length; ++channel) {
+        if (input[channel] && output[channel]) {
+          output[channel].set(input[channel]);
+        }
+      }
+    }
+
     // If no input or no channel data, just continue
     if (!input || !input[0]) return true;
 
