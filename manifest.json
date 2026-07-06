@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "SilenceSlicer for YouTube",
+  "version": "1.0.0",
+  "description": "Automatically skips silent parts of YouTube videos.",
+  "action": {},
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://*.youtube.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["src/content/index.tsx"]
+    }
+  ],
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  }
+}
