@@ -14,6 +14,8 @@ export const [pixelsPerSecond, setPixelsPerSecond] = createSignal<number>(50); /
 export const [viewStartTime, setViewStartTime] = createSignal<number>(0);
 export const [isDarkMode, setIsDarkMode] = createSignal<boolean>(false);
 
+const MAX_PEAKS_BUFFER = 90 * 60 * 4; // 90 minutes * 60s * 4 buckets/s = 21,600 items
+
 let lastBucketTime = -1;
 let currentBucket: PeakData | null = null;
 
@@ -23,7 +25,13 @@ export const addPeak = (db: number, isSilence: boolean, time: number) => {
   if (bucketTime !== lastBucketTime) {
     if (currentBucket) {
       const b = currentBucket;
-      setPeaks((prev) => [...prev, b]);
+      setPeaks((prev) => {
+        const next = [...prev, b];
+        if (next.length > MAX_PEAKS_BUFFER) {
+          return next.slice(next.length - MAX_PEAKS_BUFFER);
+        }
+        return next;
+      });
     }
     currentBucket = { db, isSilence, time: bucketTime };
     lastBucketTime = bucketTime;

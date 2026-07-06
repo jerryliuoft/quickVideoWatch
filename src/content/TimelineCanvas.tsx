@@ -39,13 +39,19 @@ export const TimelineCanvas: Component = () => {
 
   const setupCanvas = (canvas: HTMLCanvasElement, w: number, h: number) => {
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    canvas.style.width = `${w}px`;
-    canvas.style.height = `${h}px`;
-    const ctx = canvas.getContext('2d');
-    if (ctx) ctx.scale(dpr, dpr);
-    return ctx;
+    const targetWidth = w * dpr;
+    const targetHeight = h * dpr;
+
+    // Only resize (which clears the canvas) if dimensions have actually changed
+    if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      const ctx = canvas.getContext('2d');
+      if (ctx) ctx.scale(dpr, dpr);
+    }
+    return canvas.getContext('2d');
   };
 
   const drawWaveform = (
@@ -74,6 +80,23 @@ export const TimelineCanvas: Component = () => {
 
     let searchStartIndex = 0;
 
+    // Helper for binary search
+    const findStartIndex = (targetTime: number, startIdx: number, endIdx: number) => {
+      let low = startIdx;
+      let high = endIdx;
+      let ans = endIdx + 1;
+      while (low <= high) {
+        const mid = (low + high) >> 1;
+        if (currentPeaks[mid].time >= targetTime) {
+          ans = mid;
+          high = mid - 1;
+        } else {
+          low = mid + 1;
+        }
+      }
+      return ans;
+    };
+
     for (let i = 0; i < visibleBarsCount; i++) {
       const barIndex = startBarIndex + i;
       const globalX = barIndex * barStep;
@@ -84,25 +107,18 @@ export const TimelineCanvas: Component = () => {
       const timeStart = globalX / pps;
       const timeEnd = (globalX + barStep) / pps;
 
-      // Find peaks in this time range
+      // Jump to the first peak >= timeStart
+      searchStartIndex = findStartIndex(timeStart, searchStartIndex, currentPeaks.length - 1);
+
       let maxDbInBar = -Infinity;
       let hasData = false;
 
       for (let p = searchStartIndex; p < currentPeaks.length; p++) {
         const peak = currentPeaks[p];
+        if (peak.time >= timeEnd) break;
 
-        // If we haven't reached the start of the bar's time yet, keep advancing searchStartIndex
-        if (peak.time < timeStart) {
-          searchStartIndex = p;
-          continue;
-        }
-
-        if (peak.time >= timeStart && peak.time < timeEnd) {
-          if (peak.db > maxDbInBar) maxDbInBar = peak.db;
-          hasData = true;
-        } else if (peak.time >= timeEnd) {
-          break; // Optimization: peaks are ordered
-        }
+        if (peak.db > maxDbInBar) maxDbInBar = peak.db;
+        hasData = true;
       }
 
       if (hasData) {

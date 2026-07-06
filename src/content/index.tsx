@@ -56,20 +56,32 @@ function mountTimeline() {
 }
 
 function initAudio() {
-  mediaElement = document.querySelector('video');
-  if (!mediaElement) return;
+  const newMediaElement = document.querySelector('video');
+  if (!newMediaElement) return;
 
-  if (!audioCtx) {
-    audioCtx = new AudioContext();
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 256;
+  if (newMediaElement !== mediaElement) {
+    if (source) {
+      source.disconnect();
+      source = null;
+    }
+    mediaElement = newMediaElement;
 
-    source = audioCtx.createMediaElementSource(mediaElement);
-    source.connect(analyser);
-    analyser.connect(audioCtx.destination);
+    if (!audioCtx) {
+      audioCtx = new AudioContext();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.connect(audioCtx.destination);
+    }
+
+    try {
+      source = audioCtx.createMediaElementSource(mediaElement);
+      if (analyser) source.connect(analyser);
+    } catch (e) {
+      console.warn('SilenceSlicer: Could not create media element source', e);
+    }
   }
 
-  if (audioCtx.state === 'suspended') {
+  if (audioCtx && audioCtx.state === 'suspended') {
     const resumeAudio = () => {
       audioCtx?.resume();
       document.removeEventListener('click', resumeAudio);
@@ -206,7 +218,12 @@ function main() {
 
   checkTheme();
   initAudio();
-  setInterval(monitorAudio, 50);
+
+  const loop = () => {
+    monitorAudio();
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
 }
 
 main();
