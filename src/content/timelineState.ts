@@ -12,6 +12,7 @@ export const [videoCurrentTime, setVideoCurrentTime] = createSignal<number>(0);
 
 export const [pixelsPerSecond, setPixelsPerSecond] = createSignal<number>(50); // Reasonable default zoom
 export const [viewStartTime, setViewStartTime] = createSignal<number>(0);
+export const [isDarkMode, setIsDarkMode] = createSignal<boolean>(false);
 
 let lastBucketTime = -1;
 let currentBucket: PeakData | null = null;

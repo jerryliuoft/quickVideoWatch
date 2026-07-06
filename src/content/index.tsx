@@ -1,7 +1,7 @@
 import '../index.css';
 import { render } from 'solid-js/web';
 import { VideoTimeline } from './VideoTimeline';
-import { addPeak, updateVideoState, clearPeaks } from './timelineState';
+import { addPeak, updateVideoState, clearPeaks, setIsDarkMode } from './timelineState';
 
 let audioCtx: AudioContext | null = null;
 let analyser: AnalyserNode | null = null;
@@ -13,21 +13,13 @@ let lastVideoSrc = '';
 
 let isSilence = false;
 let config = {
-  enabled: true,
   threshold: -40, // dB
   padding: 0.5, // seconds
+  userTheme: 'auto', // 'auto', 'light', 'dark'
 };
 
 function mountTimeline() {
   const existingContainer = document.getElementById('silenceslicer-timeline-container');
-
-  if (!config.enabled) {
-    if (existingContainer) {
-      existingContainer.remove();
-      timelineMounted = false;
-    }
-    return;
-  }
 
   if (timelineMounted && existingContainer && document.body.contains(existingContainer)) return;
 
@@ -50,6 +42,14 @@ function mountTimeline() {
     container.style.position = 'relative';
 
     primaryInner.insertBefore(container, below);
+
+    // Initial theme check
+    const isDark =
+      document.documentElement.hasAttribute('dark') ||
+      document.documentElement.getAttribute('data-theme') === 'dark' ||
+      window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (isDark) container.classList.add('dark');
+
     render(() => <VideoTimeline />, container);
     timelineMounted = true;
   }
@@ -105,7 +105,6 @@ function monitorAudio() {
     lastVideoSrc = mediaElement.src;
   }
 
-  if (!config.enabled) return;
   if (mediaElement.paused || mediaElement.ended) return;
 
   const currentVolume = getVolume();
@@ -113,7 +112,7 @@ function monitorAudio() {
   if (currentVolume < config.threshold) {
     if (!isSilence) {
       silenceTimer = window.setTimeout(() => {
-        if (mediaElement && config.enabled) {
+        if (mediaElement) {
           mediaElement.playbackRate = 16;
         }
       }, config.padding * 1000);
@@ -140,35 +139,72 @@ function main() {
   }) as EventListener;
   window.addEventListener('silenceSlicerSeek', seekListener);
 
-  chrome.storage.local.get(['enabled', 'threshold', 'padding'], (result) => {
-    if (result.enabled !== undefined) config.enabled = result.enabled as boolean;
+  chrome.storage.local.get(['threshold', 'padding', 'userTheme'], (result) => {
     if (result.threshold !== undefined) config.threshold = result.threshold as number;
     if (result.padding !== undefined) config.padding = result.padding as number;
+    if (result.userTheme !== undefined) config.userTheme = result.userTheme as string;
+    checkTheme();
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local') {
-      if (changes.enabled) {
-        config.enabled = changes.enabled.newValue as boolean;
-        if (!config.enabled && mediaElement) {
-          mediaElement.playbackRate = 1;
-        }
-        mountTimeline(); // Immediately hide/show when config changes
-      }
       if (changes.threshold) config.threshold = changes.threshold.newValue as number;
       if (changes.padding) config.padding = changes.padding.newValue as number;
+      if (changes.userTheme) {
+        config.userTheme = changes.userTheme.newValue as string;
+        checkTheme();
+      }
     }
   });
 
-  const observer = new MutationObserver(() => {
+  const checkTheme = () => {
+    let isDark = false;
+    if (config.userTheme === 'dark') {
+      isDark = true;
+    } else if (config.userTheme === 'light') {
+      isDark = false;
+    } else {
+      isDark =
+        document.documentElement.hasAttribute('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+
+    setIsDarkMode(isDark);
+
+    const container = document.getElementById('silenceslicer-timeline-container');
+    if (container) {
+      if (isDark) {
+        container.classList.add('dark');
+      } else {
+        container.classList.remove('dark');
+      }
+    }
+  };
+
+  const observer = new MutationObserver((mutations) => {
     const video = document.querySelector('video');
     if (video && video !== mediaElement) {
       initAudio();
     }
+
+    for (const m of mutations) {
+      if (
+        m.type === 'attributes' &&
+        (m.attributeName === 'dark' || m.attributeName === 'data-theme')
+      ) {
+        checkTheme();
+      }
+    }
   });
 
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['dark', 'data-theme'],
+  });
   observer.observe(document.body, { childList: true, subtree: true });
 
+  checkTheme();
   initAudio();
   setInterval(monitorAudio, 50);
 }

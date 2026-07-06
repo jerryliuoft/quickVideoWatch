@@ -21,5 +21,11 @@
   "background": {
     "service_worker": "src/background/index.ts",
     "type": "module"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["LOGO.png"],
+      "matches": ["*://*.youtube.com/*"]
+    }
+  ]
 }

@@ -7,6 +7,7 @@ import {
   pixelsPerSecond,
   viewStartTime,
   setVideoCurrentTime,
+  isDarkMode,
 } from './timelineState';
 
 // Colors from SilenceRemover
@@ -192,8 +193,12 @@ export const TimelineCanvas: Component = () => {
     drawRegions(waveCtx, currentPeaks, height, pps, startT, width);
 
     // Draw waveforms
-    drawWaveform(waveCtx, currentPeaks, height, pps, startT, width, WAVE_COLOR);
-    drawWaveform(progressCtx, currentPeaks, height, pps, startT, width, PROGRESS_COLOR);
+    // Using stark white for maximum contrast against dark background
+    const waveThemeColor = isDarkMode() ? '#ffffff' : WAVE_COLOR;
+    const progressThemeColor = isDarkMode() ? '#a78bfa' : PROGRESS_COLOR;
+
+    drawWaveform(waveCtx, currentPeaks, height, pps, startT, width, waveThemeColor);
+    drawWaveform(progressCtx, currentPeaks, height, pps, startT, width, progressThemeColor);
   });
 
   // Playhead Sync Effect for progress canvas cropping
@@ -221,7 +226,7 @@ export const TimelineCanvas: Component = () => {
   return (
     <div
       ref={containerRef!}
-      class="relative h-full w-full bg-white select-none cursor-pointer"
+      class="relative h-full w-full bg-white dark:bg-gray-800 select-none cursor-pointer"
       onMouseDown={handleSeek}
     >
       <canvas ref={waveCanvasRef!} class="absolute top-0 left-0 h-full w-full block" />
